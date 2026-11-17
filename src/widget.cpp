@@ -1,7 +1,6 @@
 #include "widget.h"
 
 #include <commctrl.h>
-#include <uiautomation.h>
 #include <algorithm>
 
 namespace {
@@ -13,7 +12,6 @@ bool g_background;  // opaque rounded plate behind the text, for transparent / r
 std::vector<WidgetItem> g_items;
 std::wstring g_tipText;
 RECT g_lastTray{}, g_lastBar{}, g_lastWidgets{};
-IUIAutomationElement* g_widgetsBtn;
 int g_lastW = -1, g_lastDpi = 0, g_lastLeft = -1;
 SIZE g_size{};
 
@@ -25,45 +23,7 @@ int Dpi() {
 }
 int Px(int v) { return MulDiv(v, Dpi(), 96); }
 
-// Windows 11 puts the Widgets (weather) button right next to the tray when the taskbar is
-// left-aligned (start-aligned on right-to-left Windows). It is XAML, so only UI Automation knows
-// where it is. The element is looked up once per taskbar; its rectangle is re-read at most every
-// few seconds because the weather text changes its width.
-RECT WidgetsButtonRect() {
-    static IUIAutomation* uia = nullptr;
-    static ULONGLONG last = 0;
-    static RECT cached{};
-    ULONGLONG now = GetTickCount64();
-    if (last && now - last < 5000) return cached;
-    last = now;
-    cached = {};
-    if (!uia) {
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);  // UI thread; harmless if already initialised
-        if (FAILED(CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&uia)))
-            return cached;
-    }
-    if (!g_widgetsBtn) {
-        IUIAutomationElement* root = nullptr;
-        IUIAutomationCondition* cond = nullptr;
-        VARIANT id;
-        VariantInit(&id);
-        id.vt = VT_BSTR;
-        id.bstrVal = SysAllocString(L"WidgetsButton");
-        if (SUCCEEDED(uia->ElementFromHandle(g_taskbar, &root)) && root &&
-            SUCCEEDED(uia->CreatePropertyCondition(UIA_AutomationIdPropertyId, id, &cond)) && cond)
-            root->FindFirst(TreeScope_Descendants, cond, &g_widgetsBtn);
-        VariantClear(&id);
-        if (cond) cond->Release();
-        if (root) root->Release();
-        if (!g_widgetsBtn) return cached;
-    }
-    if (FAILED(g_widgetsBtn->get_CurrentBoundingRectangle(&cached))) {
-        g_widgetsBtn->Release();  // stale (Widgets turned off, Explorer restarted): look it up again next time
-        g_widgetsBtn = nullptr;
-        cached = {};
-    }
-    return cached;
-}
+RECT WidgetsButtonRect() { return {}; }
 
 void ApplyTipTheme() {
     if (!g_tip) return;
@@ -343,7 +303,6 @@ void Destroy() {
         PostMessageW(g_taskbar, WM_SIZE, SIZE_RESTORED, MAKELPARAM(r.right, r.bottom));
     }
     g_rebar = nullptr;
-    if (g_widgetsBtn) { g_widgetsBtn->Release(); g_widgetsBtn = nullptr; }
     if (g_tip) { DestroyWindow(g_tip); g_tip = nullptr; }
     if (g_wnd) { DestroyWindow(g_wnd); g_wnd = nullptr; }
     g_taskbar = nullptr;
